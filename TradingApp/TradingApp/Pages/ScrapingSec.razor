@@ -14,7 +14,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _filingsMetaData = File.ReadAllLines(@"C:\Users\georg\Desktop\sec_web_scraping\docs\2019-QTR1.tsv");
+        _filingsMetaData = File.ReadAllLines(@"C:\Users\lhmzhg0\source\repos\sec_fillings\2019-QTR1.tsv");
 
         foreach (var line in _filingsMetaData)
         {
@@ -51,11 +51,12 @@
 
             if (response.IsSuccessStatusCode)
             {
-                using var responseStream = await response.Content.ReadAsStreamAsync();
-                var metaData = await JsonSerializer.DeserializeAsync<DocumentsCollectionModel>(responseStream);
+                var responseStream = await response.Content.ReadAsStringAsync();
+                var metaData = JsonConvert.DeserializeObject<DocumentsCollectionModel>(responseStream);
+
                 foreach (var item in metaData.Directory.Items)
                 {
-                    if(item.Name == "FilingSummary")
+                    if(item.Name == "FilingSummary.xml")
                     {
                         
                     }
