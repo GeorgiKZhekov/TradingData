@@ -1,0 +1,66 @@
+﻿@page "/"
+
+@inject IHttpClientFactory ClientFactory
+
+<h3>ScrapingSec</h3>
+
+@code {
+    private string[] _filingsMetaData;
+    private List<FilingsModel> _listOfTenKsData = new List<FilingsModel>();
+    private const string _baseUrl = "https://www.sec.gov/Archives/";
+    private List<string> _jsonUrls = new List<string>();
+
+    private static readonly HttpClient client = new HttpClient();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _filingsMetaData = File.ReadAllLines(@"C:\Users\georg\Desktop\sec_web_scraping\docs\2019-QTR1.tsv");
+
+        foreach (var line in _filingsMetaData)
+        {
+            List<string> content = new List<string>();
+            content = line.Split("|").ToList();
+
+            if(content.Contains("10-K") || content.Contains("10-K/A"))
+            {
+                var contentToModel = new FilingsModel();
+
+                var urlToAdd = content[5].Replace("-", "").Replace("index.html", "/index.json");
+
+                contentToModel.CikNumber = content[0];
+                contentToModel.CompanyName = content[1];
+                contentToModel.FilingType = content[2];
+                contentToModel.Date = content[3];
+                contentToModel.FilingUrl = _baseUrl + urlToAdd;
+
+                _listOfTenKsData.Add(contentToModel);
+            }
+        }
+        _jsonUrls = _listOfTenKsData.Select(x => x.FilingUrl).ToList();
+
+
+
+        foreach (var url in _jsonUrls)
+        { 
+            var request = new HttpRequestMessage(HttpMethod.Get,url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
+
+            var client = ClientFactory.CreateClient();
+
+            var response = await client.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                using var responseStream = await response.Content.ReadAsStreamAsync();
+                var metaData = await JsonSerializer.DeserializeAsync<DocumentsCollectionModel>(responseStream);
+                foreach (var item in metaData.Directory.Items)
+                {
+                    if(item.Name == "FilingSummary")
+                    {
+                        
+                    }
+                }
+            }
+        }
+    }
+}
