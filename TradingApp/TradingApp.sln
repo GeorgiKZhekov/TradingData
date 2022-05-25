@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TradingApp", "TradingApp\Tr
 EndProject
 Project("{00D1A9C2-B5F0-4AF3-8072-F6C62B433612}") = "DocumentsDB", "DocumentsDB\DocumentsDB.sqlproj", "{4E3259B0-30FA-4240-BE48-B0DF1798F55B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportLibrary", "SupportLibrary\SupportLibrary.csproj", "{6DD8429D-348D-40A2-BF6B-85346DB69905}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SupportLibrary", "SupportLibrary\SupportLibrary.csproj", "{6DD8429D-348D-40A2-BF6B-85346DB69905}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

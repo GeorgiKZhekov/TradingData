@@ -1,0 +1,36 @@
+﻿@page "/"
+
+@using System.Xml.Serialization
+@inject IHttpClientFactory ClientFactory
+
+<h3>HtmlTableToDataFrame</h3>
+
+@code {
+    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1000209/000119312519073307/";
+    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1000209/000119312519073307/FilingSummary.xml";
+    private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get,_urlSummary);
+        request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
+
+        var client = ClientFactory.CreateClient();
+
+        var response = await client.SendAsync(request);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+               using var responseStream = await response.Content.ReadAsStreamAsync();
+               var filingsSummaryData = (FilingSummary)_mySerializer.Deserialize(responseStream);
+            }
+            catch (Exception ex)
+            {
+              Console.WriteLine(ex.GetBaseException());
+            }
+           
+        }
+    }
+}
