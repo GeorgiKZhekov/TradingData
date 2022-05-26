@@ -1,36 +1,71 @@
 ﻿@page "/"
 
 @using System.Xml.Serialization
+@using HtmlAgilityPack
 @inject IHttpClientFactory ClientFactory
 
 <h3>HtmlTableToDataFrame</h3>
 
 @code {
-    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1000209/000119312519073307/";
-    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1000209/000119312519073307/FilingSummary.xml";
+    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/";
+    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/FilingSummary.xml";
+
     private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
+    private string[] _neededReportsDiffNames = 
+        {"Consolidated Balance Sheets", "Consolidated Statement of Income", "Consolidated Statements of Cash Flows",
+            "Consolidated Statements of Operations and Comprehensive Income (Loss)"};
+
+    private List<ReportModel> _reports = new List<ReportModel>();
 
     protected override async Task OnInitializedAsync()
     {
+        var client = ClientFactory.CreateClient();
+
         var request = new HttpRequestMessage(HttpMethod.Get,_urlSummary);
         request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
 
-        var client = ClientFactory.CreateClient();
-
         var response = await client.SendAsync(request);
+
+        FilingSummary filingsSummaryData;
 
         if (response.IsSuccessStatusCode)
         {
             try
             {
-               using var responseStream = await response.Content.ReadAsStreamAsync();
-               var filingsSummaryData = (FilingSummary)_mySerializer.Deserialize(responseStream);
+                using var responseStream = await response.Content.ReadAsStreamAsync();
+                filingsSummaryData = (FilingSummary)_mySerializer.Deserialize(responseStream);
             }
             catch (Exception ex)
             {
-              Console.WriteLine(ex.GetBaseException());
+                Console.WriteLine(ex.GetBaseException());
+                return;
             }
-           
+
+            foreach(var report in filingsSummaryData.MyReports.Reports)
+            {
+                if (_neededReportsDiffNames.Contains(report.ShortName))
+                {
+                    var currentReport = new ReportModel
+                    {
+                        ShortName = report.ShortName,
+                        LongName = report.LongName,
+                        Position = report.Position,
+                        Category = report.MenuCategory,
+                        Url = _baseUrl + report.HtmlFileName
+                    };
+
+                    _reports.Add(currentReport);
+                }
+            }
+
+            foreach(var filteredReport in _reports)
+            {
+                HtmlWeb web = new HtmlWeb();
+                web.UserAgent = "georgi.zhekov3@gmail.com";
+                var htmlDoc = web.Load(filteredReport.Url);
+                var node = htmlDoc.DocumentNode.SelectSingleNode("//head/title");                    
+            }
+
         }
     }
 }

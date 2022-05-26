@@ -1,10 +1,11 @@
 ﻿namespace TradingApp.Models
 {
-using System;
-using System.Xml.Serialization;
-using System.Collections.Generic;
+	using System;
+	using System.Xml.Serialization;
+	using System.Collections.Generic;
+
 	[Serializable, XmlRoot(ElementName = "Report")]
-	public class FilingSummaryXmlModel
+	public class Report
 	{
 		[XmlElement(ElementName = "IsDefault")]
 		public string IsDefault { get; set; }
@@ -34,7 +35,7 @@ using System.Collections.Generic;
 	public class MyReports
 	{
 		[XmlElement(ElementName = "Report")]
-		public List<FilingSummaryXmlModel> Report { get; set; }
+		public List<Report> Reports { get; set; }
 	}
 
 	[XmlRoot(ElementName = "InputFiles")]
