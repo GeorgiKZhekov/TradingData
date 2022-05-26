@@ -1,7 +1,5 @@
 ﻿@page "/"
 
-@using System.Xml.Serialization
-@using HtmlAgilityPack
 @inject IHttpClientFactory ClientFactory
 
 <h3>HtmlTableToDataFrame</h3>
@@ -11,9 +9,11 @@
     private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/FilingSummary.xml";
 
     private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
-    private string[] _neededReportsDiffNames = 
-        {"Consolidated Balance Sheets", "Consolidated Statement of Income", "Consolidated Statements of Cash Flows",
-            "Consolidated Statements of Operations and Comprehensive Income (Loss)"};
+    private string[] _neededReportsDiffNames =
+        {"Consolidated Balance Sheets"};
+    //, "Consolidated Statement of Income", "Consolidated Statements of Cash Flows",
+    //"Consolidated Statements of Operations and Comprehensive Income (Loss)"};
+
 
     private List<ReportModel> _reports = new List<ReportModel>();
 
@@ -63,7 +63,21 @@
                 HtmlWeb web = new HtmlWeb();
                 web.UserAgent = "georgi.zhekov3@gmail.com";
                 var htmlDoc = web.Load(filteredReport.Url);
-                var node = htmlDoc.DocumentNode.SelectSingleNode("//head/title");                    
+
+                var query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
+                            from row in table.SelectNodes("tr").Cast<HtmlNode>()
+                            from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
+                            select new {Table = table.Id, CellText = cell.InnerText};
+
+                foreach(var cell in query) 
+                {
+                    if (cell.CellText == "X")
+                    {
+                       return;
+                    }
+
+                    Console.WriteLine("{0}", cell.CellText);
+                }
             }
 
         }
