@@ -1,4 +1,5 @@
 ﻿@page "/"
+@using System.Globalization
 
 @inject IHttpClientFactory ClientFactory
 
@@ -10,9 +11,12 @@
 
     private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
     private string[] _neededReportsDiffNames =
-        {"Consolidated Balance Sheets"};
-    //, "Consolidated Statement of Income", "Consolidated Statements of Cash Flows",
-    //"Consolidated Statements of Operations and Comprehensive Income (Loss)"};
+        {"consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
+        "consolidated statement of income", "consolidated statements of cash flows",
+        "consolidated statements of income", "consolidated statements of operations",
+        "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
+        "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
+        "statement of cash flows", "balance sheets", "statements of operations"};
 
 
     private List<ReportModel> _reports = new List<ReportModel>();
@@ -43,7 +47,7 @@
 
             foreach(var report in filingsSummaryData.MyReports.Reports)
             {
-                if (_neededReportsDiffNames.Contains(report.ShortName))
+                if (_neededReportsDiffNames.Contains(report.ShortName.ToLower()))
                 {
                     var currentReport = new ReportModel
                     {
@@ -69,14 +73,39 @@
                             from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
                             select new {Table = table.Id, CellText = cell.InnerText};
 
-                foreach(var cell in query) 
+                foreach(var cell in query)
                 {
-                    if (cell.CellText == "X")
+                    string formatted = cell.CellText;
+
+                    //Infortmation beyond "X" is not needed
+                    if (formatted == "X")
                     {
-                       return;
+                        break;
                     }
 
-                    Console.WriteLine("{0}", cell.CellText);
+                    //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
+                    formatted = formatted.Replace("$", "");
+                    formatted = formatted.Replace("(", "-").Replace(")", "");
+                    formatted = formatted.Replace(".", "");
+                    formatted = formatted.Replace("&#160;", "null");
+
+                    if(formatted == " ")
+                    {
+                        formatted = formatted.Replace(" ", "null");
+                    }
+
+                    if (double.TryParse(formatted, out double parsedNumber) && formatted.Contains(" "))
+                    {
+                        formatted = formatted.Replace(" ", "");
+                    }
+
+                    if (DateTime.TryParseExact(formatted, "MMM dd, yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out DateTime result))
+                    {
+                        Console.WriteLine("it is date");
+                    }
+
+                    Console.WriteLine("{0}", formatted);
+                    
                 }
             }
 
