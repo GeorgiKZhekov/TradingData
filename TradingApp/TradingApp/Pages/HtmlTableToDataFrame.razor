@@ -1,4 +1,5 @@
 ﻿@page "/"
+
 @using System.Globalization
 
 @inject IHttpClientFactory ClientFactory
@@ -6,18 +7,23 @@
 <h3>HtmlTableToDataFrame</h3>
 
 @code {
-    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/";
-    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/FilingSummary.xml";
+    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1116463/000156459021009887/";
+    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1116463/000156459021009887/FilingSummary.xml";
 
     private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
-    private string[] _neededReportsDiffNames =
-        {"consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
-        "consolidated statement of income", "consolidated statements of cash flows",
-        "consolidated statements of income", "consolidated statements of operations",
-        "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
-        "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
-        "statement of cash flows", "balance sheets", "statements of operations"};
 
+    private string[] _neededReportsDifferentNames =
+        { "consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statements of operations and comprehensive income loss", "consolidated statements of income",
+            "condensed consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statement of income", "consolidated statements of cash flows",
+            "condensed consolidated statements of cash flows", "condensed consolidated balance sheets",
+            "consolidated statements of income", "consolidated statements of operations",
+            "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
+            "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
+            "statement of cash flows", "balance sheets", "statements of operations"};
+
+    private List<string> _data = new List<string>();
 
     private List<ReportModel> _reports = new List<ReportModel>();
 
@@ -47,7 +53,7 @@
 
             foreach(var report in filingsSummaryData.MyReports.Reports)
             {
-                if (_neededReportsDiffNames.Contains(report.ShortName.ToLower()))
+                if (_neededReportsDifferentNames.Contains(report.ShortName.ToLower()))
                 {
                     var currentReport = new ReportModel
                     {
@@ -71,7 +77,9 @@
                 var query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
                             from row in table.SelectNodes("tr").Cast<HtmlNode>()
                             from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
-                            select new {Table = table.Id, CellText = cell.InnerText};
+                            select new { CellText = cell.InnerText };
+
+                string firstElement = String.Empty;
 
                 foreach(var cell in query)
                 {
@@ -85,30 +93,53 @@
 
                     //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
                     formatted = formatted.Replace("$", "");
-                    formatted = formatted.Replace("(", "-").Replace(")", "");
                     formatted = formatted.Replace(".", "");
                     formatted = formatted.Replace("&#160;", "null");
-
-                    if(formatted == " ")
-                    {
-                        formatted = formatted.Replace(" ", "null");
-                    }
 
                     if (double.TryParse(formatted, out double parsedNumber) && formatted.Contains(" "))
                     {
                         formatted = formatted.Replace(" ", "");
                     }
 
-                    if (DateTime.TryParseExact(formatted, "MMM dd, yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out DateTime result))
+                    formatted = formatted.Replace("(", "-").Replace(")", "");
+
+                    //Removing additional headers that just fuck up the columns math
+                    if (formatted.ToLower() != "12 months ended" && formatted.ToLower() != "3 months ended")
                     {
-                        Console.WriteLine("it is date");
+                        _data.Add(formatted);
                     }
-
-                    Console.WriteLine("{0}", formatted);
-                    
                 }
-            }
 
+                //Because every table has it's name as first column
+                int countColumns = 1;
+
+                foreach(var item in _data)
+                {
+                    if (DateTime.TryParseExact(item, "MMM dd, yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out DateTime result))
+                    {
+                        countColumns += 1;
+                    }
+                }
+
+                List<List<string>> columns = new List<List<string>>();
+                List<string> listToBeAdded = new List<string>();
+
+                for (int i = 0; i < _data.Count; i++)
+                {
+                    listToBeAdded.Add(_data[i]);
+
+                    if((i + 1) % countColumns == 0 && i != 0)
+                    {
+                        columns.Add(listToBeAdded);
+                        listToBeAdded = new List<string>();
+                    }
+                }
+
+
+                columns = new List<List<string>>();
+                listToBeAdded = new List<string>();
+                _data = new List<string>();
+            }
         }
     }
 }
