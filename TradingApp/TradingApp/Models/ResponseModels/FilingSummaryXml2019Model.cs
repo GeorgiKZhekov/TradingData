@@ -1,4 +1,4 @@
-﻿namespace TradingApp.Models
+﻿namespace TradingApp.Models.ResponseModels
 {
 	using System;
 	using System.Xml.Serialization;
@@ -53,7 +53,7 @@
 	}
 
 	[XmlRoot(ElementName = "FilingSummary")]
-	public class FilingSummary
+	public class FilingSummary2019
 	{
 		[XmlElement(ElementName = "Version")]
 		public string Version { get; set; }

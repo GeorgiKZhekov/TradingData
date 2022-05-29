@@ -1,6 +1,7 @@
 ﻿@page "/"
+@using System.Text.RegularExpressions
 
-@using System.Globalization
+
 
 @inject IHttpClientFactory ClientFactory
 
@@ -10,7 +11,7 @@
     private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1116463/000156459021009887/";
     private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/1116463/000156459021009887/FilingSummary.xml";
 
-    private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummary));
+    private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummaryXml2021Model.FilingSummary2021));
 
     private string[] _neededReportsDifferentNames =
         { "consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
@@ -36,14 +37,14 @@
 
         var response = await client.SendAsync(request);
 
-        FilingSummary filingsSummaryData;
+        FilingSummaryXml2021Model.FilingSummary2021 filingsSummaryData;
 
         if (response.IsSuccessStatusCode)
         {
             try
             {
                 using var responseStream = await response.Content.ReadAsStreamAsync();
-                filingsSummaryData = (FilingSummary)_mySerializer.Deserialize(responseStream);
+                filingsSummaryData = (FilingSummaryXml2021Model.FilingSummary2021)_mySerializer.Deserialize(responseStream);
             }
             catch (Exception ex)
             {
@@ -106,7 +107,8 @@
                     //Removing additional headers that just fuck up the columns math
                     if (formatted.ToLower() != "12 months ended" && formatted.ToLower() != "3 months ended")
                     {
-                        _data.Add(formatted);
+                        string formattedWithoutNewLines = Regex.Replace(formatted, @"\t|\n|\r", "");
+                        _data.Add(formattedWithoutNewLines);
                     }
                 }
 
@@ -123,6 +125,7 @@
 
                 List<List<string>> columns = new List<List<string>>();
                 List<string> listToBeAdded = new List<string>();
+                
 
                 for (int i = 0; i < _data.Count; i++)
                 {
@@ -135,6 +138,16 @@
                     }
                 }
 
+                string strFilePath = @"C:\Users\lhmzhg0\source\repos\sec_fillings\data.csv";
+                string strSeparator = "|";
+                StringBuilder sbOutput = new StringBuilder();
+
+                foreach (var row in columns)
+                {
+                    sbOutput.AppendLine(string.Join(strSeparator, row));
+                }
+                
+                File.WriteAllText(strFilePath, sbOutput.ToString());
 
                 columns = new List<List<string>>();
                 listToBeAdded = new List<string>();
