@@ -1,7 +1,4 @@
-﻿@page "/"
-@using System.Text.RegularExpressions
-
-
+﻿
 
 @inject IHttpClientFactory ClientFactory
 
@@ -22,7 +19,7 @@
             "consolidated statements of income", "consolidated statements of operations",
             "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
             "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
-            "statement of cash flows", "balance sheets", "statements of operations"};
+            "statement of cash flows", "balance sheets", "statements of operations" };
 
     private List<string> _data = new List<string>();
 
@@ -107,8 +104,18 @@
                     //Removing additional headers that just fuck up the columns math
                     if (formatted.ToLower() != "12 months ended" && formatted.ToLower() != "3 months ended")
                     {
+                        //Because 
                         string formattedWithoutNewLines = Regex.Replace(formatted, @"\t|\n|\r", "");
-                        _data.Add(formattedWithoutNewLines);
+
+                        if (!_data.Any())
+                        {
+                            _data.Add(formattedWithoutNewLines + " " + "CIK" + filteredReport.Url.Substring(40, 7));
+                        }
+                        else
+                        {
+                            _data.Add(formattedWithoutNewLines);    
+                        }
+                        
                     }
                 }
 
@@ -147,7 +154,7 @@
                     sbOutput.AppendLine(string.Join(strSeparator, row));
                 }
                 
-                File.WriteAllText(strFilePath, sbOutput.ToString());
+                File.AppendAllText(strFilePath, sbOutput.ToString());
 
                 columns = new List<List<string>>();
                 listToBeAdded = new List<string>();

@@ -1,16 +1,38 @@
-﻿
-
+﻿@page "/"
 @inject IHttpClientFactory ClientFactory
 
 <h3>ScrapingSec</h3>
 
 @code {
+    //Variables for taking the FilingSummary Urls
     private string[] _filingsMetaData;
     private List<FilingsModel> _listOfTenKsData = new List<FilingsModel>();
     private const string _baseUrl = "https://www.sec.gov/Archives/";
     private List<string> _jsonUrls = new List<string>();
-
+    private List<string> _filingSummaryUrls = new List<string>();
     private static readonly HttpClient client = new HttpClient();
+
+    //Variables for takind data from reports and writing it to .csv file
+    private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummaryXml2021Model.FilingSummary2021));
+
+    private string[] _neededReportsDifferentNames =
+        { "consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statements of operations and comprehensive income loss", "consolidated statements of income",
+            "condensed consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statement of income", "consolidated statements of cash flows",
+            "condensed consolidated statements of cash flows", "condensed consolidated balance sheets",
+            "consolidated statements of income", "consolidated statements of operations",
+            "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
+            "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
+            "statement of cash flows", "balance sheets", "statements of operations" };
+
+    private List<string> _data = new List<string>();
+    private List<ReportModel> _reports = new List<ReportModel>();
+    //---------------------------------
+
+    private int _countRequestsJsonUrl = 0;
+    private int _countRequestsSummaryUrl = 0;
+    private int _countRequestsReportUrl = 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -45,6 +67,8 @@
             var request = new HttpRequestMessage(HttpMethod.Get,url);
             request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
 
+            StopRequestForSecond(_countRequestsJsonUrl);
+
             var client = ClientFactory.CreateClient();
 
             var response = await client.SendAsync(request);
@@ -58,10 +82,162 @@
                 {
                     if(item.Name == "FilingSummary.xml")
                     {
-                        
+                        _filingSummaryUrls.Add(url.Substring(0, 67) + item.Name);
                     }
                 }
             }
+        }
+
+        foreach(var summaryUrl in _filingSummaryUrls)
+        {
+            var client = ClientFactory.CreateClient();
+
+            var request = new HttpRequestMessage(HttpMethod.Get,summaryUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
+
+            StopRequestForSecond(_countRequestsSummaryUrl);
+
+            var response = await client.SendAsync(request);
+
+            FilingSummaryXml2021Model.FilingSummary2021 filingsSummaryData;
+
+            if (response.IsSuccessStatusCode)
+            {
+                try
+                {
+                    using var responseStream = await response.Content.ReadAsStreamAsync();
+                    filingsSummaryData = (FilingSummaryXml2021Model.FilingSummary2021)_mySerializer.Deserialize(responseStream);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.GetBaseException());
+                    return;
+                }
+
+                foreach(var report in filingsSummaryData.MyReports.Reports)
+                {
+                    if (_neededReportsDifferentNames.Contains(report.ShortName.ToLower()))
+                    {
+                        var currentReport = new ReportModel
+                        {
+                            ShortName = report.ShortName,
+                            LongName = report.LongName,
+                            Position = report.Position,
+                            Category = report.MenuCategory,
+                            Url = _baseUrl + report.HtmlFileName
+                        };
+
+                        _reports.Add(currentReport);
+                    }
+                }
+
+                foreach(var filteredReport in _reports)
+                {
+                    HtmlWeb web = new HtmlWeb();
+                    web.UserAgent = "georgi.zhekov3@gmail.com";
+                    var htmlDoc = web.Load(filteredReport.Url);
+
+                    StopRequestForSecond(_countRequestsReportUrl);
+
+                    var query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
+                                from row in table.SelectNodes("tr").Cast<HtmlNode>()
+                                from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
+                                select new { CellText = cell.InnerText };
+
+                    string firstElement = String.Empty;
+
+                    foreach(var cell in query)
+                    {
+                        string formatted = cell.CellText;
+
+                        //Infortmation beyond "X" is not needed
+                        if (formatted == "X")
+                        {
+                            break;
+                        }
+
+                        //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
+                        formatted = formatted.Replace("$", "");
+                        formatted = formatted.Replace(".", "");
+                        formatted = formatted.Replace("&#160;", "null");
+
+                        if (double.TryParse(formatted, out double parsedNumber) && formatted.Contains(" "))
+                        {
+                            formatted = formatted.Replace(" ", "");
+                        }
+
+                        formatted = formatted.Replace("(", "-").Replace(")", "");
+
+                        //Removing additional headers that just fuck up the columns math
+                        if (formatted.ToLower() != "12 months ended" && formatted.ToLower() != "3 months ended")
+                        {
+                            //Because of the invisible /n -> removing it with regex
+                            string formattedWithoutNewLines = Regex.Replace(formatted, @"\t|\n|\r", "");
+
+                            if (!_data.Any())
+                            {
+                                _data.Add(formattedWithoutNewLines + " " + "CIK" + filteredReport.Url.Substring(40, 7));
+                            }
+                            else
+                            {
+                                _data.Add(formattedWithoutNewLines);    
+                            }
+
+                        }
+                    }
+
+                    //Because every table has it's name as first column
+                    int countColumns = 1;
+
+                    foreach(var item in _data)
+                    {
+                        if (DateTime.TryParseExact(item, "MMM dd, yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out DateTime result))
+                        {
+                            countColumns += 1;
+                        }
+                    }
+
+                    List<List<string>> columns = new List<List<string>>();
+                    List<string> listToBeAdded = new List<string>();
+
+                    for (int i = 0; i < _data.Count; i++)
+                    {
+                        listToBeAdded.Add(_data[i]);
+
+                        if((i + 1) % countColumns == 0 && i != 0)
+                        {
+                            columns.Add(listToBeAdded);
+                            listToBeAdded = new List<string>();
+                        }
+                    }
+
+                    string strFilePath = @"C:\Users\lhmzhg0\source\repos\sec_fillings\data.csv";
+                    string strSeparator = "|";
+                    StringBuilder sbOutput = new StringBuilder();
+
+                    foreach (var row in columns)
+                    {
+                        sbOutput.AppendLine(string.Join(strSeparator, row));
+                    }
+
+                    File.AppendAllText(strFilePath, sbOutput.ToString());
+
+                    columns = new List<List<string>>();
+                    listToBeAdded = new List<string>();
+                    _data = new List<string>();
+                }
+            }
+        }
+    }
+
+    //Allowed requests per second - 10
+    private void StopRequestForSecond(int counter)
+    {
+        counter += 1;
+        if(counter % 10 == 0)
+        {
+            Thread.Sleep(1000);
+            counter = 0;
         }
     }
 }
