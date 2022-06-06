@@ -35,7 +35,7 @@
     private int _countRequestsSummaryUrl;
     private int _countRequestsReportUrl;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _filingsMetaData = File.ReadAllLines(@"C:\Users\lhmzhg0\source\repos\sec_fillings\2021-QTR1.tsv");
 
@@ -59,9 +59,7 @@
                 _listOfTenKsData.Add(contentToModel);
             }
         }
-        _jsonUrls = _listOfTenKsData.Select(x => x.FilingUrl).Take(10).ToList();
-
-
+        _jsonUrls = _listOfTenKsData.Select(x => x.FilingUrl).Take(20).ToList();
 
         foreach (var url in _jsonUrls)
         { 
@@ -120,14 +118,13 @@
                     if (_neededReportsDifferentNames.Contains(report.ShortName.ToLower()))
                     {
                         var currentReport = new ReportModel
-                            {
-
-                                ShortName = report.ShortName,
-                                LongName = report.LongName,
-                                Position = report.Position,
-                                Category = report.MenuCategory,
-                                Url = summaryUrl.Replace("FilingSummary.xml", "") + report.HtmlFileName
-                    };
+                        {
+                            ShortName = report.ShortName,
+                            LongName = report.LongName,
+                            Position = report.Position,
+                            Category = report.MenuCategory,
+                            Url = summaryUrl.Replace("FilingSummary.xml", "") + report.HtmlFileName
+                        };
 
                         _reports.Add(currentReport);
                     }
@@ -146,8 +143,6 @@
                                 from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
                                 select new { CellText = cell.InnerText};
 
-                    string firstElement = String.Empty;
-
                     foreach(var cell in query)
                     {
                         string formatted = cell.CellText;
@@ -158,55 +153,65 @@
                             break;
                         }
 
+                        //Remove 'USD ($)' from header
+                        formatted = Regex.Replace(formatted, @"^(USD\(\$\))$", "");
+
                         //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
                         formatted = formatted.Replace("$", "");
                         formatted = formatted.Replace(".", "");
                         formatted = formatted.Replace("&#160;", "null");
-                        formatted = formatted.Replace("#8217", "null");
+                        formatted = formatted.Replace("&#8217", "null");
 
                         //Because of the invisible /n -> removing it with regex
-                        string formattedWithoutNewLines = Regex.Replace(formatted, @"\t|\n|\r|", "");
-                        string formattedWithoutCommas = Regex.Replace(formattedWithoutNewLines, @"^ ?(\d+)(\,*\d+)*$", formattedWithoutNewLines.Replace(" ", "").Replace(",", ""));
+                        formatted = Regex.Replace(formatted, @"\t|\n|\r|", "");
+                        //Removing commas and spaces where values stand
+                        formatted = Regex.Replace(formatted, @"^ ?(\d+)(\,*\d+)*$", formatted.Replace(" ", "").Replace(",", ""));
 
-                        if (formattedWithoutCommas.Contains(" "))
-                        {
-                            string toCheck = formattedWithoutCommas.Replace(" ", "").Replace(",", "");
 
-                            if(double.TryParse(toCheck, out double parsedNumber))
-                            {
-                                formattedWithoutCommas = toCheck;    
-                            }
-                        }
+                        //if (formatted.Contains(" "))
+                        //{
+                        //    string toCheck = formatted.Replace(" ", "").Replace(",", "");
 
-                        formattedWithoutCommas = formattedWithoutCommas.Replace("(", "-").Replace(")", "");
+                        //    if(double.TryParse(toCheck, out double parsedNumber))
+                        //    {
+                        //        formatted = toCheck;    
+                        //    }
+                        //}
+
+                        formatted = formatted.Replace("(", "-").Replace(")", "");
 
                         //Removing additional headers that just fuck up the columns math
-                        if (formattedWithoutCommas.ToLower() != "12 months ended" && formattedWithoutCommas.ToLower() != "3 months ended")
+                        if (formatted.ToLower() != "12 months ended" 
+                            && formatted.ToLower() != "8 months ended"
+                            && formatted.ToLower() != "4 months ended"
+                            && formatted.ToLower() != "3 months ended")
                         {
-                            
+
                             if (!_header.Any())
                             {
-                                _header.Add(formattedWithoutCommas + " " + "CIK" + filteredReport.Url.Substring(40, 7));
+                                string cikNumber = filteredReport.Url.Substring(40, 7);
+                                _header.Add(formatted + " " + "CIK" + cikNumber);
                             }
-                            else if (DateTime.TryParseExact(formattedWithoutCommas,
+                            else if (DateTime.TryParseExact(formatted.Substring(0,12),
                                                         "MMM dd, yyyy",
                                                         new CultureInfo("en-US"),
                                                         DateTimeStyles.None,
                                                         out DateTime result))
                             {
-                                _header.Add(formattedWithoutCommas);
+                                //Passing substring because some of the filings have 'USD ($)' in their date header
+                                _header.Add(formatted.Substring(0,12));
                             }
                             else
                             {
-                                _data.Add(formattedWithoutCommas);
-                                Console.WriteLine(formattedWithoutCommas);
+                                _data.Add(formatted);
                             }
+                            Console.WriteLine(formatted);
 
                         }
                     }
 
                     string[] legendNumbers = { "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[10]" };
-                    
+
                     //Because every table has it's name as first column
                     int countColumns = 0;
 
@@ -227,6 +232,8 @@
                     }
 
                     List<List<string>> columns = new List<List<string>>();
+                    columns.Add(_header);
+
                     List<string> listToBeAdded = new List<string>();
 
                     for (int i = 0; i < _data.Count; i++)
@@ -256,6 +263,8 @@
                     _data = new List<string>();
                     _header = new List<string>();
                 }
+
+                _reports = new List<ReportModel>();
             }
         }
     }
@@ -264,7 +273,7 @@
     private void StopRequestForSecond(int counter)
     {
         counter += 1;
-        if(counter % 10 == 0)
+        if(counter % 5 == 0)
         {
             Thread.Sleep(1000);
             counter = 0;
