@@ -1,0 +1,256 @@
+﻿@page "/"
+@inject IHttpClientFactory ClientFactory
+
+<h3>Test</h3>
+
+@code {
+    private string _baseUrl = "https://www.sec.gov/Archives/edgar/data/1265107/000126510719000004/";
+    private string _urlSummary = "https://www.sec.gov/Archives/edgar/data/100493/000010049321000009/FilingSummary.xml";
+
+    private string[] _filingsMetaData;
+    private List<FilingsModel> _listOfTenKsData = new List<FilingsModel>();
+    private const string _baseUrlFirm = "https://www.sec.gov/Archives/";
+    private List<string> _jsonUrls = new List<string>();
+    private List<string> _filingSummaryUrls = new List<string>();
+    private static readonly HttpClient client = new HttpClient();
+
+    private XmlSerializer _mySerializer = new XmlSerializer(typeof(FilingSummaryXml2021Model.FilingSummary2021));
+
+    private string[] _neededReportsDifferentNames=
+        { "consolidated balance sheets", "consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statements of operations and comprehensive income loss", "consolidated statements of income",
+            "condensed consolidated statements of operations and comprehensive income (loss)",
+            "consolidated statement of income", "consolidated statements of cash flows",
+            "condensed consolidated statements of cash flows", "condensed consolidated balance sheets",
+            "consolidated statements of income", "consolidated statements of operations",
+            "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
+            "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
+            "statement of cash flows", "balance sheets", "statements of operations" };
+
+    private string[] legendNumbers = { "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[10]" };
+
+    private List<string> _header = new List<string>();
+    private List<string> _data = new List<string>();
+    private List<ReportModel> _reports = new List<ReportModel>();
+    //---------------------------------
+
+    private int _countRequestsJsonUrl;
+    private int _countRequestsSummaryUrl;
+    private int _countRequestsReportUrl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var client = ClientFactory.CreateClient();
+
+        var request = new HttpRequestMessage(HttpMethod.Get,_urlSummary);
+        request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
+
+        _countRequestsSummaryUrl += 1;
+        if(_countRequestsSummaryUrl % 10 == 0)
+        {
+            Thread.Sleep(1000);
+            _countRequestsSummaryUrl = 0;
+        }
+
+        var response = await client.SendAsync(request);
+
+        FilingSummaryXml2021Model.FilingSummary2021 filingsSummaryData;
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                using var responseStream = await response.Content.ReadAsStreamAsync();
+                filingsSummaryData = (FilingSummaryXml2021Model.FilingSummary2021)_mySerializer.Deserialize(responseStream);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.GetBaseException());
+                return;
+            }
+
+            foreach(var report in filingsSummaryData.MyReports.Reports)
+            {
+                if (_neededReportsDifferentNames.Contains(report.ShortName.ToLower()))
+                {
+                    var currentReport = new ReportModel
+                    {
+                        ShortName = report.ShortName,
+                        LongName = report.LongName,
+                        Position = report.Position,
+                        Category = report.MenuCategory,
+                        Url = _urlSummary.Replace("FilingSummary.xml", "") + report.HtmlFileName
+                    };
+
+                    _reports.Add(currentReport);
+                }
+            }
+
+            foreach(var filteredReport in _reports)
+            {
+                HtmlWeb web = new HtmlWeb();
+                web.UserAgent = "georgi.zhekov3@gmail.com";
+                var htmlDoc = web.Load(filteredReport.Url);
+
+                _countRequestsReportUrl += 1;
+                if(_countRequestsReportUrl % 10 == 0)
+                {
+                    Thread.Sleep(1000);
+                    _countRequestsReportUrl = 0;
+                }
+
+                var query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
+                            from row in table.SelectNodes("tr").Cast<HtmlNode>()
+                            from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
+                            select new { CellText = cell.InnerText};
+
+                if(query == null)
+                {
+                    Thread.Sleep(1000);
+                    web = new HtmlWeb();
+                    web.UserAgent = "georgi.zhekov3@gmail.com";
+                    htmlDoc = web.Load(filteredReport.Url);
+
+                    query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
+                            from row in table.SelectNodes("tr").Cast<HtmlNode>()
+                            from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
+                            select new { CellText = cell.InnerText};
+                }
+
+                if(query == null)
+                {
+                    continue;
+                }
+
+                foreach(var cell in query)
+                {
+                    string formatted = cell.CellText;
+
+                    //Infortmation beyond "X" is not needed
+                    if (formatted == "X" || (formatted.Contains("[1]") && formatted.Length > 9))
+                    {
+                        break;
+                    }
+
+                    //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
+                    formatted = formatted.Replace("$", "");
+                    formatted = formatted.Replace(".", "");
+                    formatted = formatted.Replace("&#160;", "null");
+                    formatted = formatted.Replace("&#8217", "null");
+
+                    //Because of the invisible /n -> removing it with regex
+                    formatted = Regex.Replace(formatted, @"\t|\n|\r|", "");
+                    //Removing commas and spaces where values stand
+                    formatted = Regex.Replace(formatted, @"^ ?(\d+)(\,*\d+)*$", formatted.Replace(" ", "").Replace(",", ""));
+                    //Formatting the negative values
+                    formatted = formatted.Replace("(", "-").Replace(")", "");
+
+                    //Removing additional headers that just fuck up the columns math
+                    if (formatted.ToLower() != "12 months ended" 
+                        && formatted.ToLower() != "8 months ended"
+                        && formatted.ToLower() != "4 months ended"
+                        && formatted.ToLower() != "3 months ended"
+                        && formatted.ToLower() != "1 months ended"
+                        && formatted.ToLower() != "11 months ended"
+                        && formatted.ToLower() != "6 months ended")
+                    {
+
+                        if (!_header.Any())
+                        {
+                            string cikNumber = filteredReport.Url.Substring(40, 7);
+                            _header.Add(formatted + " " + "CIK" + cikNumber);
+                        }
+                        else if (formatted.Length >= 12)
+                        {
+                            if(DateTime.TryParseExact(formatted.Substring(0,12),
+                                                    "MMM dd, yyyy",
+                                                    new CultureInfo("en-US"),
+                                                    DateTimeStyles.None,
+                                                    out DateTime result))
+                            {
+                                //Passing substring to take only the date, because some of the filings have 'USD ($)' in their date header
+                                _header.Add(formatted);
+                            }
+                            else
+                            {
+                                _data.Add(formatted);
+                            }
+                        }
+                        else
+                        {
+                            _data.Add(formatted);
+                        }
+                        Console.WriteLine(formatted);
+
+                    }
+                }
+
+                    
+
+                //Because every table has it's name as first column
+                int countColumns = 0;
+
+                foreach (var item in _data)
+                {
+                    if (countColumns == 0 ||
+                        item == "" ||
+                        item == "null" ||
+                        double.TryParse(item, out double parsedNumber) ||
+                        legendNumbers.Any(item.Contains))
+                    {
+                        countColumns += 1;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                List<List<string>> columns = new List<List<string>>();
+                columns.Add(_header);
+
+                List<string> listToBeAdded = new List<string>();
+
+                for (int i = 0; i < _data.Count; i++)
+                {
+                    listToBeAdded.Add(_data[i]);
+
+                    if((i + 1) % countColumns == 0 && i != 0)
+                    {
+                        columns.Add(listToBeAdded);
+                        listToBeAdded = new List<string>();
+                    }
+                }
+
+                string strFilePath = @"C:\Users\lhmzhg0\source\repos\sec_fillings\data3.csv";
+                string strSeparator = "|";
+                StringBuilder sbOutput = new StringBuilder();
+
+                foreach (var row in columns)
+                {
+                    sbOutput.AppendLine(string.Join(strSeparator, row));
+                }
+
+                File.AppendAllText(strFilePath, sbOutput.ToString());
+
+                columns = new List<List<string>>();
+                listToBeAdded = new List<string>();
+                _data = new List<string>();
+                _header = new List<string>();
+            }
+
+            _reports = new List<ReportModel>();
+        }
+    }
+       
+
+    private void StopRequestForSecond(int counter)
+    {
+        counter += 1;
+        if(counter % 5 == 0)
+        {
+            Thread.Sleep(1000);
+            counter = 0;
+        }
+    }
+}

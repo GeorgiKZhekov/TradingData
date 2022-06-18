@@ -1,4 +1,4 @@
-﻿@page "/"
+﻿
 @inject IHttpClientFactory ClientFactory
 
 <h3>ScrapingSec</h3>
@@ -25,6 +25,8 @@
             "consolidated balance sheet", "statements of cash flows", "consolidated statements of operations and comprehensive income",
             "consolidated statements of operations and comprehensive (loss) income", "balance sheet", "statement of operations",
             "statement of cash flows", "balance sheets", "statements of operations" };
+
+    private string[] legendNumbers = { "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[10]" };
 
     private List<string> _header = new List<string>();
     private List<string> _data = new List<string>();
@@ -59,14 +61,19 @@
                 _listOfTenKsData.Add(contentToModel);
             }
         }
-        _jsonUrls = _listOfTenKsData.Select(x => x.FilingUrl).Take(20).ToList();
+        _jsonUrls = _listOfTenKsData.Select(x => x.FilingUrl).Take(100).ToList();
 
         foreach (var url in _jsonUrls)
         { 
             var request = new HttpRequestMessage(HttpMethod.Get,url);
             request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
 
-            StopRequestForSecond(_countRequestsJsonUrl);
+            _countRequestsJsonUrl += 1;
+            if(_countRequestsJsonUrl % 10 == 0)
+            {
+                Thread.Sleep(1000);
+                _countRequestsJsonUrl = 0;
+            }
 
             var client = ClientFactory.CreateClient();
 
@@ -94,7 +101,12 @@
             var request = new HttpRequestMessage(HttpMethod.Get,summaryUrl);
             request.Headers.TryAddWithoutValidation("User-Agent", "georgi.zhekov3@gmail.com");
 
-            StopRequestForSecond(_countRequestsSummaryUrl);
+            _countRequestsSummaryUrl += 1;
+            if(_countRequestsSummaryUrl % 10 == 0)
+            {
+                Thread.Sleep(1000);
+                _countRequestsSummaryUrl = 0;
+            }
 
             var response = await client.SendAsync(request);
 
@@ -136,12 +148,35 @@
                     web.UserAgent = "georgi.zhekov3@gmail.com";
                     var htmlDoc = web.Load(filteredReport.Url);
 
-                    StopRequestForSecond(_countRequestsReportUrl);
+                    _countRequestsReportUrl += 1;
+                    if(_countRequestsReportUrl % 10 == 0)
+                    {
+                        Thread.Sleep(1000);
+                        _countRequestsReportUrl = 0;
+                    }
 
                     var query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
                                 from row in table.SelectNodes("tr").Cast<HtmlNode>()
                                 from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
                                 select new { CellText = cell.InnerText};
+
+                    if(query == null)
+                    {
+                        Thread.Sleep(1000);
+                        web = new HtmlWeb();
+                        web.UserAgent = "georgi.zhekov3@gmail.com";
+                        htmlDoc = web.Load(filteredReport.Url);
+
+                        query = from table in htmlDoc.DocumentNode.SelectNodes("//table").Cast<HtmlNode>()
+                                from row in table.SelectNodes("tr").Cast<HtmlNode>()
+                                from cell in row.SelectNodes("th|td").Cast<HtmlNode>()
+                                select new { CellText = cell.InnerText};
+                    }
+
+                    if(query == null)
+                    {
+                        continue;
+                    }
 
                     foreach(var cell in query)
                     {
@@ -153,9 +188,6 @@
                             break;
                         }
 
-                        //Remove 'USD ($)' from header
-                        formatted = Regex.Replace(formatted, @"^(USD\(\$\))$", "");
-
                         //Remove '$' sign, replace '()' with '-' and '&#160;'(check if in other companies documents there is the same symbol) with 'null'
                         formatted = formatted.Replace("$", "");
                         formatted = formatted.Replace(".", "");
@@ -166,25 +198,17 @@
                         formatted = Regex.Replace(formatted, @"\t|\n|\r|", "");
                         //Removing commas and spaces where values stand
                         formatted = Regex.Replace(formatted, @"^ ?(\d+)(\,*\d+)*$", formatted.Replace(" ", "").Replace(",", ""));
-
-
-                        //if (formatted.Contains(" "))
-                        //{
-                        //    string toCheck = formatted.Replace(" ", "").Replace(",", "");
-
-                        //    if(double.TryParse(toCheck, out double parsedNumber))
-                        //    {
-                        //        formatted = toCheck;    
-                        //    }
-                        //}
-
+                        //Formatting the negative values
                         formatted = formatted.Replace("(", "-").Replace(")", "");
 
                         //Removing additional headers that just fuck up the columns math
                         if (formatted.ToLower() != "12 months ended" 
                             && formatted.ToLower() != "8 months ended"
                             && formatted.ToLower() != "4 months ended"
-                            && formatted.ToLower() != "3 months ended")
+                            && formatted.ToLower() != "3 months ended"
+                            && formatted.ToLower() != "1 months ended"
+                            && formatted.ToLower() != "11 months ended"
+                            && formatted.ToLower() != "6 months ended")
                         {
 
                             if (!_header.Any())
@@ -192,15 +216,22 @@
                                 string cikNumber = filteredReport.Url.Substring(40, 7);
                                 _header.Add(formatted + " " + "CIK" + cikNumber);
                             }
-                            else if (DateTime.TryParseExact(formatted.Substring(0,12),
-                                                        "MMM dd, yyyy",
-                                                        new CultureInfo("en-US"),
-                                                        DateTimeStyles.None,
-                                                        out DateTime result))
+                            else if (formatted.Length >= 12)
+                        {
+                            if(DateTime.TryParseExact(formatted.Substring(0,12),
+                                                    "MMM dd, yyyy",
+                                                    new CultureInfo("en-US"),
+                                                    DateTimeStyles.None,
+                                                    out DateTime result))
                             {
-                                //Passing substring because some of the filings have 'USD ($)' in their date header
-                                _header.Add(formatted.Substring(0,12));
+                                //Passing substring to take only the date, because some of the filings have 'USD ($)' in their date header
+                                _header.Add(formatted);
                             }
+                            else
+                            {
+                                _data.Add(formatted);
+                            }
+                        }
                             else
                             {
                                 _data.Add(formatted);
@@ -210,7 +241,7 @@
                         }
                     }
 
-                    string[] legendNumbers = { "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[10]" };
+                    
 
                     //Because every table has it's name as first column
                     int countColumns = 0;
@@ -247,7 +278,7 @@
                         }
                     }
 
-                    string strFilePath = @"C:\Users\lhmzhg0\source\repos\sec_fillings\data.csv";
+                    string strFilePath = @"C:\Users\lhmzhg0\source\repos\sec_fillings\data2.csv";
                     string strSeparator = "|";
                     StringBuilder sbOutput = new StringBuilder();
 
